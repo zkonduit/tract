@@ -7,12 +7,12 @@ use std::marker::PhantomData;
 
 use tract_data::TractResult;
 
-use crate::LADatum;
+use crate::{LADatum, LinalgFn1};
 
 use super::element_wise_helper::{map_reduce_slice_with_alignment, reduce_slice_with_alignment};
 
 macro_rules! reduce_impl_wrap {
-    ($ti: ident, $func: ident, $nr: expr, $alignment_items: expr, $params: ty, $neutral: expr, $run: item, $reduce_two: item) => {
+    ($ti: ident, $func: ident, $nr: expr, $alignment_items: expr, $params: ty, $neutral: expr, $run: item, $reduce_two: item, $red: item) => {
         paste! {
             #[derive(Copy, Clone, Debug)]
             #[allow(non_camel_case_types)]
@@ -41,8 +41,29 @@ macro_rules! reduce_impl_wrap {
                 }
                 $run
                 $reduce_two
+                $red 
             }
         }
+    };
+}
+
+macro_rules! impl_red_method {
+    ((), $ti:ty) => {
+        Box::new(|a: &TensorView, b: Option<&TensorView>| -> TractResult<Tensor> {
+            let a_slice = a.as_slice_mut()?;
+            let res = crate::reduce::ReduceImpl::<Self, $ti, ()>::new().run_with_params(a_slice, ());
+            Ok(Tensor::from(res))
+        })
+    };
+    ($ti_params:ty, $ti:ty) => {
+        Box::new(|a: &TensorView, b: Option<&TensorView>| -> TractResult<Tensor> {
+            let a_slice = a.as_slice_mut()?;
+            //let b_tensor = b.ok_or_else(|| anyhow!("Expected a parameter tensor"))?;
+            let b_tensor = b.unwrap();
+            let b = b_tensor.as_slice()?[0];
+            let res = crate::reduce::ReduceImpl::<Self, $ti, $ti_params>::new().run_with_params(a_slice, b)?;
+            Ok(Tensor::from(res))
+        })
     };
 }
 
@@ -110,6 +131,7 @@ where
     fn red() -> Box<dyn Reduce<T, Params>> {
         Box::new(ReduceImpl::<Self, T, Params>::new())
     }
+    fn red_1() -> Box<LinalgFn1>;
 }
 
 #[allow(unused_macros)]

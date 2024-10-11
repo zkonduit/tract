@@ -51,6 +51,16 @@ reduce_impl_wrap!(
     #[inline(never)]
     fn reduce_two(a: f16, b: f16) -> f16 {
         a.max(b)
+    },
+    fn red_1() -> Box<crate::LinalgFn1> {
+        use crate::reduce::Reduce;
+        use tract_data::prelude::{Tensor, TractResult};
+        use tract_data::internal::TensorView;
+        Box::new(|a: &TensorView, _b: Option<&TensorView>| -> TractResult<Tensor> {
+            let a_slice = a.as_slice()?;
+            let res = crate::reduce::ReduceImpl::<Self, f16, ()>::new().run_with_params(a_slice, ())?;
+            Ok(Tensor::from(res))
+        })
     }
 );
 

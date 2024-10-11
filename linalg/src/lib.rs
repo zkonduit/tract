@@ -194,12 +194,25 @@ impl BinOp {
     }
 }
 
+impl From<BinOp> for LinalgOps {
+    fn from(bin_op: BinOp) -> Self {
+        LinalgOps::Arithmetic(bin_op)
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ExtentedOp {
     SoftmaxFastCompact,
     SoftmaxCompact,
 }
 
+impl From<ExtentedOp> for LinalgOps {
+    fn from(ext_op: ExtentedOp) -> Self {
+        LinalgOps::Extended(ext_op)
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum LinalgOps {
     Arithmetic(BinOp),
     Extended(ExtentedOp),
@@ -218,13 +231,23 @@ fn register_all_by_scalar(registry: &mut LinalgRegistry) {
 }
 
 fn register_all_reducers(registry: &mut Linalg1Registry) {
-    todo!()
+    generic::register_all_reducer(registry);
+}
+
+trait InsertOpExt<V> {
+    fn insert_op(&mut self, key: (impl Into<LinalgOps>, DatumType), value: V) -> Option<V>;
+}
+
+impl<V> InsertOpExt<V> for HashMap<(LinalgOps, DatumType), V> {
+    fn insert_op(&mut self, key: (impl Into<LinalgOps>, DatumType), value: V) -> Option<V> {
+        self.insert((key.0.into(), key.1), value)
+    }
 }
 
 pub type LinalgFn = dyn Fn(&mut TensorView, &TensorView) -> TractResult<()> + Send + Sync;
 pub type LinalgFn1 = dyn Fn(&TensorView, Option<&TensorView>) -> TractResult<Tensor> + Send + Sync;
-type LinalgRegistry = HashMap<(BinOp, DatumType), Box<dyn Fn() -> Box<LinalgFn> + Send + Sync>>;
-type Linalg1Registry = HashMap<(BinOp, DatumType), Box<dyn Fn() -> Box<LinalgFn1> + Send + Sync>>;
+type LinalgRegistry = HashMap<(LinalgOps, DatumType), Box<dyn Fn() -> Box<LinalgFn> + Send + Sync>>;
+type Linalg1Registry = HashMap<(LinalgOps, DatumType), Box<dyn Fn() -> Box<LinalgFn1> + Send + Sync>>;
 lazy_static! {
     static ref BIN_UNICAST_OPS: Mutex<LinalgRegistry> = {
         let mut registry = HashMap::default();
@@ -245,17 +268,17 @@ lazy_static! {
 
 pub fn bin_by_scalar(dt: DatumType, bin: BinOp) -> Option<Box<LinalgFn>> {
     let map = BIN_BY_SCALAR_OPS.lock().unwrap();
-    map.get(&(bin, dt)).map(|it| (it)())
+    map.get(&(bin.into(), dt)).map(|it| (it)())
 }
 
 pub fn bin_unicast(dt: DatumType, bin: BinOp) -> Option<Box<LinalgFn>> {
     let map = BIN_UNICAST_OPS.lock().unwrap();
-    map.get(&(bin, dt)).map(|it| (it)())
+    map.get(&(bin.into(), dt)).map(|it| (it)())
 }
 
 pub fn reducer(dt: DatumType, bin: BinOp) -> Option<Box<LinalgFn1>> {
     let map = REDUCER_OPS.lock().unwrap();
-    map.get(&(bin, dt)).map(|it| (it)())
+    map.get(&(bin.into(), dt)).map(|it| (it)())
 }
 
 pub fn ops() -> &'static Ops {
