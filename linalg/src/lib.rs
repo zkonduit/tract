@@ -194,6 +194,17 @@ impl BinOp {
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum ExtentedOp {
+    SoftmaxFastCompact,
+    SoftmaxCompact,
+}
+
+pub enum LinalgOps {
+    Arithmetic(BinOp),
+    Extended(ExtentedOp),
+}
+
 fn register_all_unicast(registry: &mut LinalgRegistry) {
     generic::register_all_unicast(registry);
     #[cfg(target_arch = "aarch64")]
@@ -206,8 +217,14 @@ fn register_all_by_scalar(registry: &mut LinalgRegistry) {
     arm64::register_all_by_scalar(registry);
 }
 
+fn register_all_reducers(registry: &mut Linalg1Registry) {
+    todo!()
+}
+
 pub type LinalgFn = dyn Fn(&mut TensorView, &TensorView) -> TractResult<()> + Send + Sync;
+pub type LinalgFn1 = dyn Fn(&TensorView, Option<&TensorView>) -> TractResult<Tensor> + Send + Sync;
 type LinalgRegistry = HashMap<(BinOp, DatumType), Box<dyn Fn() -> Box<LinalgFn> + Send + Sync>>;
+type Linalg1Registry = HashMap<(BinOp, DatumType), Box<dyn Fn() -> Box<LinalgFn1> + Send + Sync>>;
 lazy_static! {
     static ref BIN_UNICAST_OPS: Mutex<LinalgRegistry> = {
         let mut registry = HashMap::default();
@@ -219,6 +236,11 @@ lazy_static! {
         register_all_by_scalar(&mut registry);
         Mutex::new(registry)
     };
+    static ref REDUCER_OPS: Mutex<Linalg1Registry> = {
+        let mut registry = HashMap::default();
+        register_all_reducers(&mut registry);
+        Mutex::new(registry)
+    };
 }
 
 pub fn bin_by_scalar(dt: DatumType, bin: BinOp) -> Option<Box<LinalgFn>> {
@@ -228,6 +250,11 @@ pub fn bin_by_scalar(dt: DatumType, bin: BinOp) -> Option<Box<LinalgFn>> {
 
 pub fn bin_unicast(dt: DatumType, bin: BinOp) -> Option<Box<LinalgFn>> {
     let map = BIN_UNICAST_OPS.lock().unwrap();
+    map.get(&(bin, dt)).map(|it| (it)())
+}
+
+pub fn reducer(dt: DatumType, bin: BinOp) -> Option<Box<LinalgFn1>> {
+    let map = REDUCER_OPS.lock().unwrap();
     map.get(&(bin, dt)).map(|it| (it)())
 }
 
