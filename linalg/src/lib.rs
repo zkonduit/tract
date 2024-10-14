@@ -201,13 +201,13 @@ impl From<BinOp> for LinalgOps {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum ExtentedOp {
+pub enum ExtendedOp {
     SoftmaxFastCompact,
-    SoftmaxCompact,
+    Softmax,
 }
 
-impl From<ExtentedOp> for LinalgOps {
-    fn from(ext_op: ExtentedOp) -> Self {
+impl From<ExtendedOp> for LinalgOps {
+    fn from(ext_op: ExtendedOp) -> Self {
         LinalgOps::Extended(ext_op)
     }
 }
@@ -215,7 +215,7 @@ impl From<ExtentedOp> for LinalgOps {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum LinalgOps {
     Arithmetic(BinOp),
-    Extended(ExtentedOp),
+    Extended(ExtendedOp),
 }
 
 fn register_all_unicast(registry: &mut LinalgRegistry) {
@@ -234,6 +234,10 @@ fn register_all_reducers(registry: &mut Linalg1Registry) {
     generic::register_all_reducer(registry);
 }
 
+fn register_all_map_reducers(registry: &mut Linalg2Registry) {
+    generic::register_all_map_reducer(registry);
+}
+
 trait InsertOpExt<V> {
     fn insert_op(&mut self, key: (impl Into<LinalgOps>, DatumType), value: V) -> Option<V>;
 }
@@ -246,8 +250,10 @@ impl<V> InsertOpExt<V> for HashMap<(LinalgOps, DatumType), V> {
 
 pub type LinalgFn = dyn Fn(&mut TensorView, &TensorView) -> TractResult<()> + Send + Sync;
 pub type LinalgFn1 = dyn Fn(&TensorView, Option<&TensorView>) -> TractResult<Tensor> + Send + Sync;
+pub type LinalgFn2 = dyn Fn(&mut TensorView, Option<&TensorView>) -> TractResult<Tensor> + Send + Sync;
 type LinalgRegistry = HashMap<(LinalgOps, DatumType), Box<dyn Fn() -> Box<LinalgFn> + Send + Sync>>;
 type Linalg1Registry = HashMap<(LinalgOps, DatumType), Box<dyn Fn() -> Box<LinalgFn1> + Send + Sync>>;
+type Linalg2Registry = HashMap<(LinalgOps, DatumType), Box<dyn Fn() -> Box<LinalgFn2> + Send + Sync>>;
 lazy_static! {
     static ref BIN_UNICAST_OPS: Mutex<LinalgRegistry> = {
         let mut registry = HashMap::default();
@@ -262,6 +268,11 @@ lazy_static! {
     static ref REDUCER_OPS: Mutex<Linalg1Registry> = {
         let mut registry = HashMap::default();
         register_all_reducers(&mut registry);
+        Mutex::new(registry)
+    };
+    static ref MAP_REDUCER_OPS: Mutex<Linalg2Registry> = {
+        let mut registry = HashMap::default();
+        register_all_map_reducers(&mut registry);
         Mutex::new(registry)
     };
 }
@@ -279,6 +290,11 @@ pub fn bin_unicast(dt: DatumType, bin: BinOp) -> Option<Box<LinalgFn>> {
 pub fn reducer(dt: DatumType, bin: BinOp) -> Option<Box<LinalgFn1>> {
     let map = REDUCER_OPS.lock().unwrap();
     map.get(&(bin.into(), dt)).map(|it| (it)())
+}
+
+pub fn map_reducer(dt: DatumType, op: impl Into<LinalgOps>) -> Option<Box<LinalgFn2>> {
+    let map = MAP_REDUCER_OPS.lock().unwrap();
+    map.get(&(op.into(), dt)).map(|it| (it)())
 }
 
 pub fn ops() -> &'static Ops {

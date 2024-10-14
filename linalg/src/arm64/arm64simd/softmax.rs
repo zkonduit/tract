@@ -100,6 +100,18 @@ map_reduce_impl_wrap!(
     #[inline(never)]
     fn reduce_two(a: f32, b: f32) -> f32 {
         a + b
+    },
+    fn red_1() -> Box<crate::LinalgFn2> {
+        use crate::reduce::MapReduce;
+        use tract_data::prelude::{Tensor, TractResult};
+        use tract_data::internal::TensorView;
+        Box::new(|a: &mut TensorView, b: Option<&TensorView>| -> TractResult<Tensor> {
+            let mut a_slice = a.as_slice_mut()?;
+            let b_tensor = b.unwrap();
+            let b = b_tensor.as_slice()?[0];
+            let res = crate::reduce::MapReduceImpl::<Self, f32, f32>::new().run_with_params(&mut a_slice, b)?;
+            Ok(Tensor::from(res))
+        })
     }
 );
 

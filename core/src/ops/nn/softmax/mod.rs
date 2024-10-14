@@ -8,7 +8,7 @@ use math::{
 };
 use num_traits::Float;
 use std::fmt::Debug;
-use tract_linalg::{BinOp, LinalgFn, LinalgFn1};
+use tract_linalg::{BinOp, ExtendedOp, LinalgFn, LinalgFn1, LinalgFn2};
 use tract_num_traits::Zero;
 
 use crate::internal::*;
@@ -111,7 +111,7 @@ impl TypedOp for Softmax {
         let mut sorted_axes = self.axes.iter().collect::<Vec<_>>();
         sorted_axes.sort_unstable();
         let softmax_axes_are_inner_dims =
-            sorted_axes.into_iter().rev().zip((0..input_rank).rev()).all(|(a, b)| *a == b);
+            sorted_axes.iter().rev().zip((0..input_rank).rev()).all(|(a, b)| **a == b);
 
         let dt = input_fact.datum_type;
 
@@ -121,21 +121,22 @@ impl TypedOp for Softmax {
             let Some(max_fn) = tract_linalg::reducer(dt, BinOp::Max) else {
                 return Ok(None);
             };
-            let Some(sum_fn) = tract_linalg::reducer(dt, BinOp::Add) else {
+            let Some(softmax_fn) = tract_linalg::map_reducer(dt, ExtendedOp::Softmax) else {
                 return Ok(None);
             };
             let Some(mul_by_scalar_fn) = tract_linalg::bin_by_scalar(dt, BinOp::Mul) else {
                 return Ok(None);
             };
             let max_fn = Arc::from(max_fn);
-            let sum_fn = Arc::from(sum_fn);
+            let softmax_fn = Arc::from(softmax_fn);
             let mul_by_scalar_fn = Arc::from(mul_by_scalar_fn);
+            let last_iter_dim_idx =  **sorted_axes.first().unwrap();
             return Ok(Some(
                 TypedModelPatch::replace_single_op(
                     model,
                     node,
                     &node.inputs,
-                    OptSoftmax { inner_softmax: self.clone(), max_fn, sum_fn, mul_by_scalar_fn },
+                    OptSoftmax { inner_softmax: self.clone(), last_iter_dim_idx, max_fn, softmax_fn, mul_by_scalar_fn },
                 )?
                 .with_context("ByScalar"),
             ));
@@ -377,8 +378,9 @@ fn softmax_quant_inner<D: Dimension>(
 #[derive(Clone)]
 pub struct OptSoftmax {
     inner_softmax: Softmax,
+    last_iter_dim_idx: usize,
     max_fn: Arc<LinalgFn1>,
-    sum_fn: Arc<LinalgFn1>,
+    softmax_fn: Arc<LinalgFn2>,
     mul_by_scalar_fn: Arc<LinalgFn>,
 }
 
@@ -420,19 +422,7 @@ impl EvalOp for OptSoftmax {
         let input = args_1!(inputs);
         let input_shape = input.shape().to_vec();
 
-        // Check shapes on which we need to iterate on
-        let mut iterating_shape: TVec<usize> = input.shape().into();
-        for i in 0..iterating_shape.len() {
-            if self.inner_softmax.axes.contains(&i) {
-                iterating_shape[i] = 1
-            }
-        }
-        let non_iterating_shapes_at_end =
-            iterating_shape.iter().skip_while(|it| **it != 1).all(|it| *it == 1);
-        ensure!(
-            non_iterating_shapes_at_end,
-            "OptSoftmax can only be applied to Softmax with inner axes"
-        );
+        let iterating_shape = input_shape[..self.last_iter_dim_idx].to_vec();
 
         // Iterate on outter shapes and perform computation
         let output = input.into_tensor();
@@ -441,7 +431,7 @@ impl EvalOp for OptSoftmax {
             debug_assert_eq!(view.shape(), &input_shape[it_coords.len()..]);
             let max = (self.max_fn)(&view, None)?;
             let max_tensor_view = max.view();
-            let sum = (self.sum_fn)(&mut view, Some(&max_tensor_view))?;
+            let sum = (self.softmax_fn)(&mut view, Some(&max_tensor_view))?;
             let rsum = tensor_recip(sum)?;
             (self.mul_by_scalar_fn)(&mut view, &rsum.view())?;
         }

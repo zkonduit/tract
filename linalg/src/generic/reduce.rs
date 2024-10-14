@@ -144,6 +144,84 @@ pub mod sum {
 }
 
 // Softmax generic implementation
+pub mod softmax {
+    use crate::num_traits::Zero;
+    use tract_data::internal::f16;
+
+    map_reduce_impl_wrap!(
+        f32,
+        SSoftMax,
+        4,
+        4,
+        f32,
+        f32::MIN,
+        0.0,
+        fn run(x: &mut [f32], max: f32) -> f32 {
+            debug_assert!(x.len() % Self::nr() == 0);
+            debug_assert!(x.as_ptr() as usize % Self::alignment_bytes() == 0);
+            let mut sum = 0.;
+            for v in x.iter_mut() {
+                let y = (*v - max).exp();
+                sum += y;
+                *v = y;
+            }
+            sum
+        },
+        fn reduce_two(a: f32, b: f32) -> f32 {
+            a + b
+        },
+        fn red_1() -> Box<crate::LinalgFn2> {
+            use crate::reduce::MapReduce;
+            use tract_data::prelude::{Tensor, TractResult};
+            use tract_data::internal::TensorView;
+            Box::new(|a: &mut TensorView, b: Option<&TensorView>| -> TractResult<Tensor> {
+                let mut a_slice = a.as_slice_mut()?;
+                let b_tensor = b.unwrap();
+                let b = b_tensor.as_slice()?[0];
+                let res = crate::reduce::MapReduceImpl::<Self, f32, f32>::new().run_with_params(&mut a_slice, b)?;
+                Ok(Tensor::from(res))
+            })
+        }
+    );
+
+    map_reduce_impl_wrap!(
+        f16,
+        HSoftMax,
+        8,
+        8,
+        f16,
+        f16::MIN,
+        f16::zero(),
+        fn run(x: &mut [f16], max: f16) -> f16 {
+            debug_assert!(x.len() % Self::nr() == 0);
+            debug_assert!(x.as_ptr() as usize % Self::alignment_bytes() == 0);
+            let mut sum = f16::zero();
+            for v in x.iter_mut() {
+                let y = f16::from_f32(((*v - max).to_f32()).exp());
+                sum += y;
+                *v = y;
+            }
+            sum
+        },
+        fn reduce_two(a: f16, b: f16) -> f16 {
+            a + b
+        },
+        fn red_1() -> Box<crate::LinalgFn2> {
+            use crate::reduce::MapReduce;
+            use tract_data::prelude::{Tensor, TractResult};
+            use tract_data::internal::TensorView;
+            Box::new(|a: &mut TensorView, b: Option<&TensorView>| -> TractResult<Tensor> {
+                let mut a_slice = a.as_slice_mut()?;
+                let b_tensor = b.unwrap();
+                let b = b_tensor.as_slice()?[0];
+                let res = crate::reduce::MapReduceImpl::<Self, f16, f16>::new().run_with_params(&mut a_slice, b)?;
+                Ok(Tensor::from(res))
+            })
+        }
+    );
+}
+
+// Softmax generic implementation
 pub mod softmax_l2 {
     use crate::num_traits::Zero;
     use tract_data::internal::f16;
@@ -170,6 +248,18 @@ pub mod softmax_l2 {
         },
         fn reduce_two(a: f32, b: f32) -> f32 {
             a + b
+        },
+        fn red_1() -> Box<crate::LinalgFn2> {
+            use crate::reduce::MapReduce;
+            use tract_data::prelude::{Tensor, TractResult};
+            use tract_data::internal::TensorView;
+            Box::new(|a: &mut TensorView, b: Option<&TensorView>| -> TractResult<Tensor> {
+                let mut a_slice = a.as_slice_mut()?;
+                let b_tensor = b.unwrap();
+                let b = b_tensor.as_slice()?[0];
+                let res = crate::reduce::MapReduceImpl::<Self, f32, f32>::new().run_with_params(&mut a_slice, b)?;
+                Ok(Tensor::from(res))
+            })
         }
     );
 
@@ -195,6 +285,18 @@ pub mod softmax_l2 {
         },
         fn reduce_two(a: f16, b: f16) -> f16 {
             a + b
+        },
+        fn red_1() -> Box<crate::LinalgFn2> {
+            use crate::reduce::MapReduce;
+            use tract_data::prelude::{Tensor, TractResult};
+            use tract_data::internal::TensorView;
+            Box::new(|a: &mut TensorView, b: Option<&TensorView>| -> TractResult<Tensor> {
+                let mut a_slice = a.as_slice_mut()?;
+                let b_tensor = b.unwrap();
+                let b = b_tensor.as_slice()?[0];
+                let res = crate::reduce::MapReduceImpl::<Self, f16, f16>::new().run_with_params(&mut a_slice, b)?;
+                Ok(Tensor::from(res))
+            })
         }
     );
 

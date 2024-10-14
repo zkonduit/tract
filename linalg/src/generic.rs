@@ -11,8 +11,8 @@ pub mod unicast;
 
 use tract_data::prelude::DatumType;
 
-use crate::frame::reduce::ReduceKer;
-use crate::{BinOp, ByScalarKer, InsertOpExt, Linalg1Registry, LinalgRegistry, UnicastKer};
+use crate::frame::reduce::{ReduceKer, MapReduceKer};
+use crate::{BinOp, ExtendedOp, ByScalarKer, InsertOpExt, Linalg1Registry, Linalg2Registry, LinalgRegistry, UnicastKer};
 
 pub use self::by_scalar::{HMulByScalar8, SMulByScalar4};
 pub use self::erf::SErf4;
@@ -58,4 +58,11 @@ pub(crate) fn register_all_reducer(registry: &mut Linalg1Registry) {
     registry.insert_op((BinOp::Max, DatumType::F16), Box::new(|| reduce::max::HMax8::red_1()));
     registry.insert_op((BinOp::Add, DatumType::F32), Box::new(|| reduce::sum::SSum4::red_1()));
     registry.insert_op((BinOp::Add, DatumType::F16), Box::new(|| reduce::sum::HSum8::red_1()));
+}
+
+pub(crate) fn register_all_map_reducer(registry: &mut Linalg2Registry) {
+    registry.insert_op((ExtendedOp::Softmax, DatumType::F32), Box::new(|| reduce::softmax::SSoftMax::red_1()));
+    registry.insert_op((ExtendedOp::Softmax, DatumType::F16), Box::new(|| reduce::softmax::HSoftMax::red_1())); 
+    registry.insert_op((ExtendedOp::SoftmaxFastCompact, DatumType::F32), Box::new(|| reduce::softmax_l2::SSoftMaxL2::red_1()));
+    registry.insert_op((ExtendedOp::SoftmaxFastCompact, DatumType::F16), Box::new(|| reduce::softmax_l2::HSoftMaxL2::red_1())); 
 }
