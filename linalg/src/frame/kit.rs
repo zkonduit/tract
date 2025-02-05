@@ -5,8 +5,8 @@ use tract_data::prelude::DatumType;
 use crate::frame::block_quant::{BlockQuant, PackedBlockQuantFormat};
 
 use super::pack::PackedFormat;
-use super::panel_extract::PanelExtractor;
-use super::{MMMInputFormat, MatMatMul};
+use crate::frame::mmm::panel_extract::PanelExtractor;
+use crate::{MMMInputFormat, MatMatMul};
 
 // final hypothesis
 // * A is const weight. either a DT, or a blockquant
@@ -115,7 +115,7 @@ impl From<Box<dyn MMMInputFormat>> for KitDatumType {
 }
 
 #[derive(Debug)]
-pub struct MMMKit {
+pub struct Kit {
     pub weight: WeightType,
     pub accumulator: KitDatumType,
     pub activation: KitDatumType,
@@ -131,8 +131,8 @@ pub struct MMMKitItem {
     pub weight_panel_extractor: Option<PanelExtractor>,
 }
 
-impl MMMKit {
-    pub(crate) fn new_for_mmm(mmm: Box<dyn MatMatMul>, packing: usize) -> MMMKit {
+impl Kit {
+    pub(crate) fn new_for_mmm(mmm: Box<dyn MatMatMul>, packing: usize) -> Kit {
         let static_packer = mmm.packings()[packing].0.clone();
         Self::new(
             static_packer.clone(),
@@ -148,10 +148,10 @@ impl MMMKit {
         accumulator: impl Into<KitDatumType>,
         activation: impl Into<KitDatumType>,
         static_packer: &dyn MMMInputFormat,
-    ) -> MMMKit {
+    ) -> Kit {
         let (weight, accumulator, activation) =
             (weight.into(), accumulator.into(), activation.into());
-        let kit = MMMKit {
+        let kit = Kit {
             weight,
             accumulator,
             activation,
@@ -162,9 +162,7 @@ impl MMMKit {
         match &kit.weight {
             WeightType::Plain(p) => {
                 debug_assert!(
-                    kit.static_packer
-                        .downcast_ref::<PackedFormat>()
-                        .is_some_and(|pf| pf.dt == *p),
+                    kit.static_packer.downcast_ref::<PackedFormat>().is_some_and(|pf| pf.dt == *p),
                     "Static packer not compatible with weight format {kit:?}"
                 )
             }
@@ -197,11 +195,7 @@ impl MMMKit {
             "Activation packed dt mismatch {self:?} {:?}",
             mmm.packings()[packing].1
         );
-        self.items.push(MMMKitItem {
-            mmm,
-            packing,
-            weight_panel_extractor,
-        });
+        self.items.push(MMMKitItem { mmm, packing, weight_panel_extractor });
         self
     }
 
@@ -235,10 +229,7 @@ impl MMMKit {
     }
 
     pub(crate) fn with_generic_fallback(self, generic_fallback: bool) -> Self {
-        Self {
-            generic_fallback,
-            ..self
-        }
+        Self { generic_fallback, ..self }
     }
 
     pub fn name(&self) -> &str {
