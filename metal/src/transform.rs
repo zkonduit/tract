@@ -79,8 +79,14 @@ impl MetalTransform {
             .with_rule_for("as-new-gelu", rewrite_rules::as_new_gelu_rule)
             .with_rule_for("as-rotate-half", rewrite_rules::as_rotate_half_rule)
             .with_rule_for("as-apply-rope", rewrite_rules::as_apply_rope_rule)
-            .with_rule_for("as-scaled-masked-softmax", rewrite_rules::as_scaled_masked_softmax_rule)
-            .with_rule_for("untranspose-matmul-output", rewrite_rules::untranspose_matmul_output)
+            .with_rule_for(
+                "as-scaled-masked-softmax",
+                rewrite_rules::as_scaled_masked_softmax_rule,
+            )
+            .with_rule_for(
+                "untranspose-matmul-output",
+                rewrite_rules::untranspose_matmul_output,
+            )
             .rewrite(&(), model)?;
 
         if stop_at_phase == 1 {
@@ -193,7 +199,11 @@ fn can_translate_to_metal_op(
     let input_dts = source
         .node_input_facts(node.id)?
         .iter()
-        .map(|f| f.as_metal_fact().map(|f| f.datum_type).unwrap_or(f.datum_type))
+        .map(|f| {
+            f.as_metal_fact()
+                .map(|f| f.datum_type)
+                .unwrap_or(f.datum_type)
+        })
         .collect_vec();
 
     let in_dts_metal_compatible = input_dts.iter().all(|dt| MetalTensor::is_supported_dt(*dt));
@@ -202,7 +212,9 @@ fn can_translate_to_metal_op(
         && (node
             .op_as::<ElementWiseOp>()
             .is_some_and(|op| map_element_wise_ops_to_metal(op).is_some())
-            || node.op_as::<TypedBinOp>().is_some_and(|op| map_bin_ops_to_metal(&op.0).is_some())
+            || node
+                .op_as::<TypedBinOp>()
+                .is_some_and(|op| map_bin_ops_to_metal(&op.0).is_some())
             || node.op_is::<Comp>()
             || node.op_is::<MultiBroadcastTo>()
             || node.op_as::<BasicMatMul>().is_some_and(|op| {
@@ -212,7 +224,7 @@ fn can_translate_to_metal_op(
             })
             || node
                 .op_as::<Const>()
-                .is_some_and(|op| MetalTensor::is_supported_dt(op.0.datum_type()))
+                .is_some_and(|op| MetalTensor::is_supported_dt(op.val().datum_type()))
             || node.op_as::<Cast>().is_some_and(|op| {
                 ops::MetalCast::is_supported_dt(input_dts[0])
                     && ops::MetalCast::new(op.to).is_some()
@@ -240,7 +252,9 @@ fn can_translate_to_metal_op(
             || node
                 .op_as::<BasicApplyRope>()
                 .is_some_and(|_| ApplyRope::is_supported_dt(input_dts[0]))
-            || node.op_as::<BasicSilu>().is_some_and(|_| Silu::is_supported_dt(input_dts[0]))
+            || node
+                .op_as::<BasicSilu>()
+                .is_some_and(|_| Silu::is_supported_dt(input_dts[0]))
             || node
                 .op_as::<BasicNewGelu>()
                 .is_some_and(|_| NewGelu::is_supported_dt(input_dts[0]))))
@@ -277,7 +291,10 @@ impl Translate<TypedFact, Box<dyn TypedOp>, TypedFact, Box<dyn TypedOp>> for Met
                     Box::new(ops::MetalCast::new(op.to).unwrap())
                 } else if let Some(op) = node.op_as::<AxisOp>() {
                     let in_fact = source.node_input_facts(node.id)?[0];
-                    Box::new(ops::MetalAxisOp::from_tract_core_with_fact(op.clone(), in_fact))
+                    Box::new(ops::MetalAxisOp::from_tract_core_with_fact(
+                        op.clone(),
+                        in_fact,
+                    ))
                 } else if let Some(op) = node.op_as::<Slice>() {
                     Box::new(ops::MetalSlice::from_tract_core(op.clone()))
                 } else if let Some(op) = node.op_as::<TypedConcat>() {
@@ -287,7 +304,9 @@ impl Translate<TypedFact, Box<dyn TypedOp>, TypedFact, Box<dyn TypedOp>> for Met
                 } else if let Some(op) = node.op_as::<CoreSoftmax>() {
                     Box::new(ops::MetalSoftmax::from_tract_core(op).unwrap())
                 } else if let Some(op) = node.op_as::<BasicScaledMaskedSoftmax>() {
-                    Box::new(ops::MetalScaledMaskedSoftmax { scale: op.scale.clone() })
+                    Box::new(ops::MetalScaledMaskedSoftmax {
+                        scale: op.scale.clone(),
+                    })
                 } else if let Some(op) = node.op_as::<BasicRmsNorm>() {
                     Box::new(ops::MetalRmsNorm::new(op.axis, op.eps.clone()))
                 } else if let Some(_op) = node.op_as::<BasicRotateHalf>() {
@@ -352,15 +371,18 @@ fn convert_matmul_to_metal(
     gemm_impl: MetalGemmImplKind,
 ) -> TractResult<TVec<OutletId>> {
     let matmul: Box<dyn TypedOp> = match gemm_impl {
-        MetalGemmImplKind::Mlx => {
-            Box::new(ops::MetalGemm::<MlxGemm>::new(op.transpose_a, op.transpose_b))
-        }
-        MetalGemmImplKind::Mps => {
-            Box::new(ops::MetalGemm::<MpsMatMul>::new(op.transpose_a, op.transpose_b))
-        }
-        MetalGemmImplKind::Mfa => {
-            Box::new(ops::MetalGemm::<MfaGemm>::new(op.transpose_a, op.transpose_b))
-        }
+        MetalGemmImplKind::Mlx => Box::new(ops::MetalGemm::<MlxGemm>::new(
+            op.transpose_a,
+            op.transpose_b,
+        )),
+        MetalGemmImplKind::Mps => Box::new(ops::MetalGemm::<MpsMatMul>::new(
+            op.transpose_a,
+            op.transpose_b,
+        )),
+        MetalGemmImplKind::Mfa => Box::new(ops::MetalGemm::<MfaGemm>::new(
+            op.transpose_a,
+            op.transpose_b,
+        )),
     };
 
     let out_dt = matmul.output_facts(&model.node_input_facts(node.id)?)?[0].datum_type;
@@ -402,9 +424,14 @@ fn convert_logic_ops_to_metal(op: &Comp) -> ops::MetalBinOp {
 }
 
 fn convert_const(op: &Const) -> TractResult<Const> {
-    let metal_fact = MetalFact::from_cpu(Arc::clone(&op.0).into())?;
-    let metal_const = op.0.clone().into_metal()?.into_opaque_tensor().into_arc_tensor();
-    Ok(Const::new_with_opaque_fact(metal_const, Box::new(metal_fact)))
+    let metal_fact = MetalFact::from_cpu(Arc::clone(op.val()).into())?;
+    let metal_const = op
+        .val()
+        .clone()
+        .into_metal()?
+        .into_opaque_tensor()
+        .into_arc_tensor();
+    Const::new_with_opaque_fact(metal_const, Box::new(metal_fact))
 }
 
 fn map_element_wise_ops_to_metal(op: &ElementWiseOp) -> Option<ops::MetalElementWiseOp> {
